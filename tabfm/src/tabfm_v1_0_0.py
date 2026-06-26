@@ -105,12 +105,31 @@ class RegressionConfig(Config):
   loss: str = "rmse"
 
 
+# Process-wide memo of restored models. Caching avoids re-running the Orbax
+# checkpoint restore on every call (e.g. AutoGluon / TabArena bagging fits many
+# child models in one process); the restored weights are immutable and shared
+# safely across callers.
+#
+# It is a dict keyed by load settings (model_type, checkpoint_path, step,
+# attention_impl, dtype) rather than a single slot for two reasons:
+#   1. Distinct variants can coexist in one process -- most commonly the
+#      classification and regression models -- so a single slot would evict
+#      one whenever the other is loaded and re-pay the restore each switch.
+#   2. Correctness: these settings change which weights/architecture you get,
+#      so the key guarantees we never return a model loaded with settings
+#      different from those requested. (Equivalent to functools.lru_cache on
+#      the arguments; kept explicit for the use_cache=False escape hatch.)
+_LOAD_CACHE: Dict[Any, "TabFM"] = {}
+
+
 def load(
     model_type: str = "classification",
     checkpoint_path: Optional[str] = None,
     step: Optional[int] = None,
+    attention_impl: str = 'flash',
     *,
     dtype: Any = jnp.bfloat16,
+    use_cache: bool = True,
 ) -> TabFM:
   """Loads the TabFM v1.0.0 model with pre-trained weights.
 
@@ -123,11 +142,21 @@ def load(
     checkpoint_path: Local directory containing the 'orbax/' checkpoint, or None
       to download from Hugging Face.
     step: The checkpoint step to restore (for local loading).
+    attention_impl: Attention implementation to use ('jax', 'flash', etc.).
     dtype: Calculations dtype for JAX.
+    use_cache: If True (default), reuse a process-wide cached model when one was
+      already loaded with identical settings. Set False to force a fresh load.
 
   Returns:
     An initialized TabFM model with restored weights.
   """
+  cache_key = (model_type, checkpoint_path, step, attention_impl, str(dtype))
+  if use_cache and cache_key in _LOAD_CACHE:
+    return _LOAD_CACHE[cache_key]
+
+  from tabfm.src.model import AttentionImplementation
+  att_impl = AttentionImplementation(attention_impl)
+  
   # 1. Instantiate model with hardcoded config based on model_type
   if model_type == "classification":
     config = ClassificationConfig()
@@ -140,7 +169,9 @@ def load(
     )
 
   rngs = nnx.Rngs(0)
-  model = TabFM(rngs=rngs, dtype=dtype, **config.to_dict())
+  config_dict = config.to_dict()
+  config_dict['icl_attention_impl'] = att_impl
+  model = TabFM(rngs=rngs, dtype=dtype, **config_dict)
 
   # 2. Get checkpoint directory
   if checkpoint_path is None:
@@ -184,4 +215,6 @@ def load(
   )
   nnx.update(model, restored["params"])
 
+  if use_cache:
+    _LOAD_CACHE[cache_key] = model
   return model

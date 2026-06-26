@@ -1653,8 +1653,24 @@ class TabFMClassifier(ClassifierMixin, BaseEstimator):
     cat_masks_iter = cat_masks_split if cat_masks is not None else [None] * len(Xs_split)
     for X_batch, y_batch, cat_mask_batch in zip(Xs_split, ys_split, cat_masks_iter):
       orig_batch_size = X_batch.shape[0]
+      orig_seq_len = X_batch.shape[1]
+
+      # Follow prefill(): pad sequence length T (n_row) to a multiple of 128
+      # with -100. Padded rows fall past train_size and are sliced off below.
+      # Done here (outside the jit boundary) so varying dataset sizes bucket to
+      # the same padded shape, avoiding a recompile per distinct length.
+      _block_size = 128
+      _T_full = X_batch.shape[1]
+      _pad_len = ((_T_full - 1) // _block_size + 1) * _block_size - _T_full
+      if _pad_len > 0:
+        X_batch = np.pad(
+            X_batch, ((0, 0), (0, _pad_len), (0, 0)), constant_values=-100.0
+        )
+
       X_batch = _pad_batch_to_multiple_of(X_batch, num_data_shards)
       y_batch = _pad_batch_to_multiple_of(y_batch, num_data_shards)
+      if cat_mask_batch is not None:
+        cat_mask_batch = _pad_batch_to_multiple_of(cat_mask_batch, num_data_shards)
 
       X_batch = jax.device_put(jnp.array(X_batch, dtype=jnp.float32), data_sharding)
       y_batch = jax.device_put(jnp.array(y_batch, dtype=jnp.float32), data_sharding)
@@ -1676,11 +1692,8 @@ class TabFMClassifier(ClassifierMixin, BaseEstimator):
             constant_values=-100.0,
         )
 
-
-
       # No gradient calculation needed for inference
       if cat_mask_batch is not None and hasattr(self.model, "cell_embedder"):
-        cat_mask_batch = _pad_batch_to_multiple_of(cat_mask_batch, num_data_shards)
         cat_mask_batch = jax.device_put(
             jnp.array(cat_mask_batch, dtype=jnp.bool_), data_sharding
         )
@@ -1692,8 +1705,8 @@ class TabFMClassifier(ClassifierMixin, BaseEstimator):
             self.model, X_batch, y_batch, train_size, d_batch
         )
 
-      # Slice output to keep only test predictions and unpadded batch.
-      out = out[:orig_batch_size, train_size_val:, :]
+      # Slice output to keep only test predictions (ignoring the sequence pad) and unpadded batch.
+      out = out[:orig_batch_size, train_size_val:orig_seq_len, :]
       from jax.experimental import multihost_utils  # pylint: disable=g-import-not-at-top
       out = multihost_utils.process_allgather(out, tiled=True)
       outputs.append(out)
@@ -2053,6 +2066,18 @@ class TabFMRegressor(RegressorMixin, BaseEstimator):
     cat_masks_iter = cat_masks_split if cat_masks is not None else [None] * len(Xs_split)
     for X_batch, y_batch, cat_mask_batch in zip(Xs_split, ys_split, cat_masks_iter):
       orig_batch_size = X_batch.shape[0]
+      orig_seq_len = X_batch.shape[1]
+
+      # Follow prefill(): pad sequence length T (n_row) to a multiple of 128
+      # with -100. Padded rows fall past train_size and are sliced off below.
+      _block_size = 128
+      _T_full = X_batch.shape[1]
+      _pad_len = ((_T_full - 1) // _block_size + 1) * _block_size - _T_full
+      if _pad_len > 0:
+        X_batch = np.pad(
+            X_batch, ((0, 0), (0, _pad_len), (0, 0)), constant_values=-100.0
+        )
+
       X_batch = _pad_batch_to_multiple_of(X_batch, num_data_shards)
       y_batch = _pad_batch_to_multiple_of(y_batch, num_data_shards)
 
@@ -2075,8 +2100,6 @@ class TabFMRegressor(RegressorMixin, BaseEstimator):
             constant_values=-100.0,
         )
 
-
-
       if cat_mask_batch is not None and hasattr(self.model, "cell_embedder"):
         cat_mask_batch = _pad_batch_to_multiple_of(cat_mask_batch, num_data_shards)
         cat_mask_batch = jax.device_put(
@@ -2090,7 +2113,7 @@ class TabFMRegressor(RegressorMixin, BaseEstimator):
             self.model, X_batch, y_batch, train_size, d_batch
         )
 
-      out = out[:orig_batch_size, train_size_val:, :]
+      out = out[:orig_batch_size, train_size_val:orig_seq_len, :]
       from jax.experimental import multihost_utils  # pylint: disable=g-import-not-at-top
       out = multihost_utils.process_allgather(out, tiled=True)
       outputs.append(out)
