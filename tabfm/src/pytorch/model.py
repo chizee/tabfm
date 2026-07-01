@@ -422,7 +422,7 @@ class TabFM(
     nn.Module,
     PyTorchModelHubMixin,
     repo_url="https://github.com/google-research/tabfm",
-    license="apache-2.0",
+    license="other",
 ):
   def __init__(self, *, embed_dim=8, max_classes=3, col_num_blocks=2,
                col_nhead=2, col_num_inds=4, row_num_blocks=2, row_nhead=2,
