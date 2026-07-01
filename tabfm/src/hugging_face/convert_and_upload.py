@@ -15,7 +15,6 @@
 """Utility to convert JAX TabFM checkpoints to PyTorch and upload to Hugging Face."""
 
 import os
-import json
 import logging
 from typing import Any, Dict, Optional, Tuple, Literal
 from absl import app
@@ -23,8 +22,7 @@ from absl import flags
 import jax.numpy as jnp
 import numpy as np
 import torch
-from torch import Tensor
-from jaxtyping import Float, Int, Bool
+from jaxtyping import Float, Int
 
 from tabfm.src.jax import tabfm_v1_0_0
 from tabfm.src.pytorch import model as MT
@@ -156,25 +154,12 @@ def save_checkpoint(
     output_dir: str,
     model_type: str,
 ) -> str:
-  """Saves PyTorch state dict and config metadata to output_dir."""
+  """Saves model weights and config to output_dir using save_pretrained."""
   model_dir = os.path.join(output_dir, model_type)
   os.makedirs(model_dir, exist_ok=True)
-  
-  weight_path = os.path.join(model_dir, "pytorch_model.bin")
-  logging.info("Saving PyTorch weights to %s...", weight_path)
-  torch.save(model.state_dict(), weight_path)
-  
-  config_path = os.path.join(model_dir, "config.json")
-  config_data = {
-      "model_type": "tabfm",
-      "version": "1.0.0",
-      "task": model_type,
-      "framework": "pytorch",
-      **V1_0_0_CONFIG,
-  }
-  with open(config_path, "w") as f:
-    json.dump(config_data, f, indent=2)
-  logging.info("Created config file at %s", config_path)
+  logging.info("Saving model to %s...", model_dir)
+  model.save_pretrained(model_dir)
+  logging.info("Saved model to %s", model_dir)
   return model_dir
 
 
@@ -204,28 +189,10 @@ def main(argv):
   if FLAGS.repo_id:
     if not FLAGS.token:
       raise ValueError("Hugging Face token is required when repo_id is provided.")
-      
+
     from huggingface_hub import HfApi  # pylint: disable=g-import-not-at-top
     api = HfApi(token=FLAGS.token)
-    
-    # Upload root config
-    tmp_root_config = "/tmp/tabfm_root_config_pytorch.json"
-    root_config = {
-        "model_type": "tabfm",
-        "version": "1.0.0",
-        "framework": "pytorch",
-    }
-    with open(tmp_root_config, "w") as f:
-      json.dump(root_config, f, indent=2)
-      
-    logging.info("Uploading root config.json to %s...", FLAGS.repo_id)
-    api.upload_file(
-        path_or_fileobj=tmp_root_config,
-        path_in_repo="config.json",
-        repo_id=FLAGS.repo_id,
-        repo_type="model",
-    )
-    
+
     for mtype, sdir in local_dirs.items():
       logging.info("Uploading %s folder to %s...", mtype, FLAGS.repo_id)
       api.upload_folder(

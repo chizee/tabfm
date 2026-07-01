@@ -30,6 +30,7 @@ from typing import List, Optional
 import torch
 import torch.nn.functional as F
 from torch import nn
+from huggingface_hub import PyTorchModelHubMixin
 
 
 def get_activation(name):
@@ -417,7 +418,12 @@ class ICLearning(nn.Module):
     return self.decoder(self.ln(out))
 
 
-class TabFM(nn.Module):
+class TabFM(
+    nn.Module,
+    PyTorchModelHubMixin,
+    repo_url="https://github.com/google-research/tabfm",
+    license="apache-2.0",
+):
   def __init__(self, *, embed_dim=8, max_classes=3, col_num_blocks=2,
                col_nhead=2, col_num_inds=4, row_num_blocks=2, row_nhead=2,
                row_num_cls=2, icl_num_blocks=2, icl_nhead=2, ff_factor=2,
@@ -451,3 +457,34 @@ class TabFM(nn.Module):
     emb = self.col_embedder_2(emb, train_size)
     reps = self.row_interactor_2(emb, d=d)
     return self.icl_predictor(reps, y, train_size)
+
+  @classmethod
+  def _from_pretrained(
+      cls,
+      *,
+      model_id,
+      revision,
+      cache_dir,
+      force_download,
+      local_files_only,
+      token,
+      map_location="cpu",
+      strict=True,
+      **model_kwargs,
+  ):
+    # existing hub configs use "task": "classification" instead of is_classifier
+    if "is_classifier" not in model_kwargs and "task" in model_kwargs:
+      model_kwargs["is_classifier"] = model_kwargs.pop("task") == "classification"
+    for key in ("model_type", "version", "framework"):
+      model_kwargs.pop(key, None)
+    return super()._from_pretrained(
+        model_id=model_id,
+        revision=revision,
+        cache_dir=cache_dir,
+        force_download=force_download,
+        local_files_only=local_files_only,
+        token=token,
+        map_location=map_location,
+        strict=strict,
+        **model_kwargs,
+    )
