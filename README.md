@@ -106,11 +106,11 @@ from tabfm import TabFMRegressor
 
 # OPTION A: JAX Backend
 from tabfm import tabfm_v1_0_0_jax as tabfm_v1_0_0
-model = tabfm_v1_0_0.load()
+model = tabfm_v1_0_0.load(model_type="regression")
 
 # OPTION B: PyTorch Backend
 # from tabfm import tabfm_v1_0_0_pytorch as tabfm_v1_0_0
-# model = tabfm_v1_0_0.load()
+# model = tabfm_v1_0_0.load(model_type="regression")
 
 # Initialize scikit-learn compatible regressor (works with either backend model)
 reg = TabFMRegressor(model=model)
