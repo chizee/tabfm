@@ -1606,15 +1606,9 @@ class EnsembleGenerator(TransformerMixin, BaseEstimator):
           _apply_categorical_permutation(X_full, cat_perm)
           X_variant_instance = preprocessor.transform(X_full)
         else:
-          X_train_trans = getattr(
-              preprocessor, "X_transformed_", preprocessor.transform(self.X_)
-          )[train_idx]
+          X_train_trans = preprocessor.X_transformed_[train_idx]
           X_test_trans = (
-              getattr(
-                  preprocessor,
-                  "X_transformed_",
-                  preprocessor.transform(self.X_),
-              )[val_idx]
+              preprocessor.X_transformed_[val_idx]
               if val_idx is not None
               else preprocessor.transform(X_test)
           )
