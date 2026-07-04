@@ -55,6 +55,17 @@ py_test(
 )
 
 py_test(
+    name = "memory_efficient_attention_test",
+    srcs = ["memory_efficient_attention_test.py"],
+    deps = [
+        ":memory_efficient_attention",
+        "@pip//absl_py",
+        "@pip//jax",
+        "@pip//numpy",
+    ],
+)
+
+py_test(
     name = "checkpointing_test",
     srcs = ["checkpointing_test.py"],
     deps = [
